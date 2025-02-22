@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  # Chatbot API service
+  chatbot-api:
+    build: .
+    container_name: chatbot-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    environment:
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      - postgres
+
+  # PostgreSQL database service
+  postgres:
+    image: postgres:13
+    container_name: postgres-db
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: chatbot_db
+    ports:
+      - "5432:5432"
+
+  # Elasticsearch service for vector search
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.10.0
+    container_name: elasticsearch
+    environment:
+      - discovery.type=single-node
+    ports:
+      - "9200:9200"

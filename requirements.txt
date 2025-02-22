@@ -1,0 +1,16 @@
+fastapi
+uvicorn[standard]
+pydantic_settings
+pydantic[email]
+sqlalchemy
+openai
+colorlog
+python-dotenv
+alembic
+psycopg2-binary
+python-jose
+passlib
+bcrypt
+elasticsearch
+postgresql
+postgresql-contrib
