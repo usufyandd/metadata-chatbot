@@ -7,12 +7,20 @@ from dotenv import load_dotenv
 import requests
 import os, re
 import chardet
+import spacy
 
 
-
-
+# Load NLP model for keyword extraction
+nlp = spacy.load("en_core_web_sm")
 load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+
+def extract_keywords(text):
+    """Extracts relevant keywords dynamically using NLP."""
+    doc = nlp(text)
+    return {token.lemma_.lower() for token in doc if token.pos_ in {"NOUN", "VERB"} and len(token.text) > 2}
+
 
 def extract_text_from_pdf(pdf_path):
     """Extracts text from a PDF file using pdfplumber, with OCR fallback for scanned pages."""

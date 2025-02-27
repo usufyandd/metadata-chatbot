@@ -12,5 +12,9 @@ python-jose
 passlib
 bcrypt
 elasticsearch
-postgresql
-postgresql-contrib
+spacy
+pdfplumber
+langchain
+pytesseract
+pdf2image
+chardet

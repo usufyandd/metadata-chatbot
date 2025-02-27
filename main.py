@@ -11,11 +11,10 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-Base.metadata.create_all(engine)
+# Base.metadata.create_all(engine)
 
 app = FastAPI()
 
-Base.metadata.create_all(engine)
 
 app.add_middleware(
     CORSMiddleware,

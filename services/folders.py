@@ -3,6 +3,7 @@ from fastapi import HTTPException, status, UploadFile, File
 from uuid import UUID
 from typing import List, Optional
 from models.auth import UserRegistation
+from collections import defaultdict
 from tables import *
 from utils.folders import *
 
@@ -161,72 +162,126 @@ def get_files_in_folder_service(folder_id: UUID, db: Session, current_user):
     ]
 
 
-def get_project_metadata(query: str, db):
-    """Retrieves metadata from all documents in the latest folder and updates the summary dynamically."""
 
-    # Fetch the latest folder (most recently created/updated)
-    folder = db.query(Folder).order_by(Folder.created_at.desc()).first()
-    if not folder:
-        raise HTTPException(status_code=404, detail="No folder found")
+def get_project_metadata(query: str, db: Session):
+    """Dynamically searches for documents related to the query across all folders."""
 
-    # Count the total number of files in this folder
-    total_files = db.query(Document).filter(Document.folder_id == folder.id).count()
+    # Extract query keywords
+    query_keywords = extract_keywords(query)
 
-    # Fetch all documents in the latest folder
-    documents = db.query(Document).filter(Document.folder_id == folder.id).all()
+    # Fetch all folders
+    folders = db.query(Folder).all()
 
-    if not documents:
-        raise HTTPException(status_code=404, detail="No documents found in the folder")
+    if not folders:
+        raise HTTPException(status_code=404, detail="No folders found")
 
+    # Initialize result containers
+    total_documents = 0
+    folder_document_count = defaultdict(int)
+    project_documents = defaultdict(list)
     extracted_text = ""
-    
-    for document in documents:
-        if document.storage_path.endswith(".pdf"):
-            extracted_text += extract_text_from_pdf(document.storage_path) + "\n"
-        elif document.storage_path.endswith(".doc"):
-            extracted_text += extract_text_from_doc(document.storage_path) + "\n"
-        else:
-            encoding = detect_encoding(document.storage_path)
+    matched_folder_name = False
+    query_lower = query.lower()  # Convert query to lowercase
+
+    for folder in folders:
+        folder_name_lower = folder.name.lower()  # Convert folder name to lowercase
+
+        # Match if query contains folder name directly OR any keyword matches
+        if folder_name_lower in query_lower or any(keyword.lower() in folder_name_lower for keyword in query_keywords):
+            matched_folder_name = True
+
+
+        documents = db.query(Document).filter(Document.folder_id == folder.id).all()
+
+        if not documents:
+            continue
+
+        for document in documents:
+            text = ""
+
+            # Handle different file types
+            file_path = document.storage_path
+            file_ext = os.path.splitext(file_path)[1].lower()
+
             try:
-                with open(document.storage_path, "r", encoding=encoding) as f:
-                    extracted_text += f.read() + "\n"
-            except UnicodeDecodeError:
-                with open(document.storage_path, "r", encoding="utf-8", errors="replace") as f:
-                    extracted_text += f.read() + "\n"
+                if file_ext == ".pdf":
+                    text = extract_text_from_pdf(file_path)
+                elif file_ext == ".doc":
+                    text = extract_text_from_doc(file_path)
+                else:
+                    encoding = detect_encoding(file_path)
+                    with open(file_path, "r", encoding=encoding, errors="replace") as f:
+                        text = f.read()
+            except Exception as e:
+                print(f"Error processing file {file_path}: {e}")
+                continue  # Skip the file if there's an error
 
-    if not extracted_text.strip():
-        raise HTTPException(status_code=400, detail="No valid text extracted from the documents")
+            if not text.strip():
+                continue
 
-    # Process text using LangChain's text splitter
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-    chunks = text_splitter.split_text(extracted_text)
+            # Extract keywords and check relevance
+            doc_keywords = extract_keywords(text)
+            if query_keywords & doc_keywords or matched_folder_name:
+                project_documents[folder.name].append((document.filename, text[:500]))  # Store preview of text
+                folder_document_count[folder.name] += 1
+                total_documents += 1
+                extracted_text += text + "\n"
+    # print("query_keyword :", query_keywords)
+    # print("doc_keyword :", doc_keywords)
+    print("Matched_folder_name : ",matched_folder_name)
+    print(f"Query Keywords: {query_keywords}")
+    print(f"Document Keywords: {doc_keywords}")
 
-    extracted_dates = extract_dates(extracted_text)
+    # print("Extracted_text : ", extracted_text)
+    print("Total Document : ", total_documents)
+    if total_documents == 0:
+        return {"message": f"No relevant documents found for query: {query}"}
 
-    # Gemini Prompt for Information Extraction
-    prompt = f"""
-    Based on the following query: {query}
+    # Determine response format **ONLY IF FOLDER NAME MATCHES QUERY**
+    if matched_folder_name:
+        prompt = f"""
+        Based on the following query: {query}
 
-    Extract the following information from the project documents:
-    - Name of the project
-    - Name of the client
-    - Managing Director
-    - Summarize the project based on the content of all files in the folder
-    - Count the number of files in the folder ({total_files} files detected)
-    - Identify only one starting project date. If multiple dates are detected, choose the earliest date.
+        Extract relevant information from project documents, such as:
+        - Name of the project
+        - Name of the client
+        - Project Manager
+        - Summary of the project
+        - Number of letters found
+        - Dates of the letters (if applicable)
 
-    Document Content:
+        Document Content:
+        {extracted_text[:10000]}  # Limiting to first 10000 chars for efficiency
 
-    {' '.join(chunks[:5])}  # Take the first 5 chunks to avoid exceeding token limits
-    Provide the response in the following structured format:
-    ```
-    Name of the project: [Project Name]
-    Name of the client: [Client Name]
-    Managing Director: [Managing Director's Name]
-    Project Summary: [Summary based on all files]
-    Number of files: {total_files}
-    Date of the project
-    ```
-    """
+        Provide the response in this structured format:
+
+        Name of the project: [Extracted Project Name]
+        Name of the client: [Extracted Client Name]
+        Project Manager: [Extracted Manager]
+        Summary: [Detailed Summarized Content]
+        Total Letters: {total_documents}
+        Date of Letters: [List of Dates]
+        """
+
+    else:  # If folder name does NOT match, assume dispute letter structure
+        prompt = f"""
+        Extract information about related letters, such as:
+        - How many letters exist
+        - Name of the Folder
+        - Summary of each letter
+        - Date of each letter
+        - Sender and Receiver details
+
+        Document Content:
+        {extracted_text[:5000]}  # Limiting to first 5000 chars for efficiency
+
+        Provide the response in this structured format:
+
+        Total Letters: {total_documents}
+        Folder Name: {folder.name}
+        Letters:
+        - [Letter 1 Summary, Date, Sender, Receiver]
+        - [Letter 2 Summary, Date, Sender, Receiver]
+        """
 
     return call_gemini(prompt)
