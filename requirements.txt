@@ -18,3 +18,4 @@ langchain
 pytesseract
 pdf2image
 chardet
+python-multipart
