@@ -41,7 +41,8 @@ def extract_text_from_pdf(pdf_path):
 def extract_text_from_doc(doc_path):
     """Extracts text from a DOC (old Word 97-2003 format) file using catdoc."""
     try:
-        result = subprocess.run(["catdoc", doc_path], capture_output=True, text=True)
+        antiword_path = "/opt/homebrew/bin/antiword"
+        result = subprocess.run([antiword_path, doc_path], capture_output=True, text=True)
         return result.stdout.strip()
     except Exception as e:
         print(f"Error extracting text from {doc_path}: {e}")
